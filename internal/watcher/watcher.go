@@ -40,6 +40,31 @@ func NewWorkspaceWatcher(client LSPClient) *WorkspaceWatcher {
 	return NewWorkspaceWatcherWithConfig(client, DefaultWatcherConfig())
 }
 
+// ResolvePreopenMode decides whether the watcher should eagerly open every
+// workspace file for the given LSP command. Pre-opening is required by some
+// servers to resolve cross-file features (typescript-language-server,
+// rust-analyzer) but is wasteful for servers that index the workspace from disk
+// (gopls, pyright). To stay correct for unknown servers, the default is ON and
+// only servers verified not to need it are turned off. MCP_PREOPEN_FILES
+// (true/false) overrides the decision.
+func ResolvePreopenMode(lspCommand string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MCP_PREOPEN_FILES"))) {
+	case "true", "1", "yes", "always":
+		return true
+	case "false", "0", "no", "never":
+		return false
+	}
+	cmd := strings.ToLower(filepath.Base(lspCommand))
+	switch {
+	case strings.Contains(cmd, "gopls"):
+		return false
+	case strings.Contains(cmd, "pyright"): // pyright-langserver, basedpyright-langserver
+		return false
+	default:
+		return true
+	}
+}
+
 // NewWorkspaceWatcherWithConfig creates a new workspace watcher with custom configuration
 func NewWorkspaceWatcherWithConfig(client LSPClient, config *WatcherConfig) *WorkspaceWatcher {
 	return &WorkspaceWatcher{
@@ -111,8 +136,14 @@ func (w *WorkspaceWatcher) AddRegistrations(ctx context.Context, id string, watc
 		}
 	}
 
-	// Find and open all existing files that match the newly registered patterns
-	// TODO: not all language servers require this, but typescript does. Make this configurable
+	// Find and open all existing files that match the newly registered patterns.
+	// Only some language servers (e.g. typescript) need every file open; for the
+	// rest this is skipped to avoid a slow, fd-hungry workspace-wide scan.
+	if !w.config.PreopenAllFiles {
+		watcherLogger.Debug("Skipping workspace pre-open (PreopenAllFiles is disabled)")
+		return
+	}
+
 	go func() {
 		startTime := time.Now()
 		filesOpened := 0

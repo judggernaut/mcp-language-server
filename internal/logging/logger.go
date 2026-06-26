@@ -74,7 +74,7 @@ var Writer io.Writer = os.Stderr
 var TestOutput io.Writer
 
 // logMu protects concurrent modifications to logging config
-var logMu sync.Mutex
+var logMu sync.RWMutex
 
 // Initialize from environment variables
 func init() {
@@ -175,8 +175,8 @@ func NewLogger(component Component) Logger {
 
 // IsLevelEnabled returns true if the given log level is enabled for this component
 func (l *ComponentLogger) IsLevelEnabled(level LogLevel) bool {
-	logMu.Lock()
-	defer logMu.Unlock()
+	logMu.RLock()
+	defer logMu.RUnlock()
 
 	minLevel, ok := ComponentLevels[l.component]
 	if !ok {

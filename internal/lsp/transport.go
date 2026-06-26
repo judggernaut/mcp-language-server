@@ -26,8 +26,11 @@ func WriteMessage(w io.Writer, msg *Message) error {
 	// High-level operation log
 	lspLogger.Debug("Sending message: method=%s id=%v", msg.Method, msg.ID)
 
-	// Wire protocol log (more detailed)
-	wireLogger.Debug("-> Sending: %s", string(data))
+	// Wire protocol log (more detailed). Guard the string conversion so we
+	// don't allocate a copy of every message when wire logging is disabled.
+	if wireLogger.IsLevelEnabled(logging.LevelDebug) {
+		wireLogger.Debug("-> Sending: %s", string(data))
+	}
 
 	_, err = fmt.Fprintf(w, "Content-Length: %d\r\n\r\n", len(data))
 	if err != nil {
@@ -88,7 +91,9 @@ func ReadMessage(r *bufio.Reader) (*Message, error) {
 		return nil, fmt.Errorf("failed to read content: %w", err)
 	}
 
-	wireLogger.Debug("<- Received: %s", string(content))
+	if wireLogger.IsLevelEnabled(logging.LevelDebug) {
+		wireLogger.Debug("<- Received: %s", string(content))
+	}
 
 	// Parse message
 	var msg Message

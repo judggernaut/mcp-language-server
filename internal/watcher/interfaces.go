@@ -38,6 +38,16 @@ type WatcherConfig struct {
 
 	// MaxFileSize is the maximum size of a file to open
 	MaxFileSize int64
+
+	// PreopenAllFiles controls whether the watcher eagerly opens every
+	// matching workspace file when the server registers watchers. Some
+	// language servers (e.g. typescript-language-server, rust-analyzer) only
+	// resolve cross-file features for open files, while others (gopls,
+	// pyright) index the workspace from disk and don't need this. Eagerly
+	// opening everything is slow and can exhaust file descriptors on large
+	// repositories. It defaults to on for safety; ResolvePreopenMode turns it
+	// off for servers verified not to need it.
+	PreopenAllFiles bool
 }
 
 // DefaultWatcherConfig returns a configuration with sensible defaults
@@ -93,5 +103,9 @@ func DefaultWatcherConfig() *WatcherConfig {
 			".wasm": true,
 		},
 		MaxFileSize: 5 * 1024 * 1024, // 5MB
+		// On by default for correctness with servers that need open files;
+		// ResolvePreopenMode disables it for servers (gopls, pyright) that
+		// index from disk.
+		PreopenAllFiles: true,
 	}
 }

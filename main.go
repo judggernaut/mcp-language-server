@@ -8,11 +8,13 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/isaacphi/mcp-language-server/internal/logging"
 	"github.com/isaacphi/mcp-language-server/internal/lsp"
+	"github.com/isaacphi/mcp-language-server/internal/telemetry"
 	"github.com/isaacphi/mcp-language-server/internal/utilities"
 	"github.com/isaacphi/mcp-language-server/internal/watcher"
 	"github.com/mark3labs/mcp-go/server"
@@ -31,9 +33,11 @@ type mcpServer struct {
 	config           config
 	lspClient        *lsp.Client
 	mcpServer        *server.MCPServer
+	telemetry        *telemetry.Recorder
 	ctx              context.Context
 	cancelFunc       context.CancelFunc
 	workspaceWatcher *watcher.WorkspaceWatcher
+	cleanupOnce      sync.Once
 }
 
 func parseConfig() (*config, error) {
@@ -97,7 +101,9 @@ func (s *mcpServer) initializeLSP() error {
 		return fmt.Errorf("failed to create LSP client: %v", err)
 	}
 	s.lspClient = client
-	s.workspaceWatcher = watcher.NewWorkspaceWatcher(client)
+	watcherConfig := watcher.DefaultWatcherConfig()
+	watcherConfig.PreopenAllFiles = watcher.ResolvePreopenMode(s.config.lspCommand)
+	s.workspaceWatcher = watcher.NewWorkspaceWatcherWithConfig(client, watcherConfig)
 
 	initResult, err := client.InitializeLSPClient(s.ctx, s.config.workspaceDir)
 	if err != nil {
@@ -115,11 +121,18 @@ func (s *mcpServer) start() error {
 		return err
 	}
 
+	const serverVersion = "v0.0.2"
+	s.telemetry = telemetry.NewRecorder(serverVersion)
+	if s.telemetry.FileEnabled() {
+		coreLogger.Info("MCP tool telemetry: writing ATIF trajectory to %s", os.Getenv(telemetry.EnvTrajectoryFile))
+	}
+
 	s.mcpServer = server.NewMCPServer(
 		"MCP Language Server",
-		"v0.0.2",
+		serverVersion,
 		server.WithLogging(),
 		server.WithRecovery(),
+		server.WithHooks(newTelemetryHooks(s.telemetry)),
 	)
 
 	err := s.registerTools()
@@ -189,8 +202,15 @@ func main() {
 	if err := server.start(); err != nil {
 		coreLogger.Error("Server error: %v", err)
 		cleanup(server, done)
+		<-done
 		os.Exit(1)
 	}
+
+	// start() returned without error, which means the MCP client closed the
+	// connection (stdin EOF). Shut down cleanly so the LSP child and telemetry
+	// don't leak.
+	coreLogger.Info("MCP connection closed, shutting down")
+	cleanup(server, done)
 
 	<-done
 	coreLogger.Info("Server shutdown complete for PID: %d", os.Getpid())
@@ -198,7 +218,18 @@ func main() {
 }
 
 func cleanup(s *mcpServer, done chan struct{}) {
+	s.cleanupOnce.Do(func() {
+		runCleanup(s, done)
+	})
+}
+
+func runCleanup(s *mcpServer, done chan struct{}) {
 	coreLogger.Info("Cleanup initiated for PID: %d", os.Getpid())
+
+	// Flush any pending telemetry before shutting down.
+	if s.telemetry != nil {
+		s.telemetry.Close()
+	}
 
 	// Create a context with timeout for shutdown operations
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

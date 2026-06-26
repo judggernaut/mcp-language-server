@@ -239,6 +239,32 @@ Rebuild after making changes.
 
 Setting the `LOG_LEVEL` environment variable to DEBUG enables verbose logging to stderr for all components including messages to and from the language server and the language server's logs.
 
+### Telemetry
+
+Every MCP tool call is observed centrally and summarized to stderr at INFO level, e.g.:
+
+```
+[INFO][tools] tool call: name=definition ok=true duration_ms=2 args_bytes=22 result_bytes=150
+```
+
+These summaries never include file contents — only the tool name, success, duration and payload sizes.
+
+For full structured telemetry, set `MCP_TRAJECTORY_FILE` to a path and the server writes an [ATIF](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md) (Agent Trajectory Interchange Format) document, with one step per tool call (`tool_calls` + `observation`, including per-call `duration_ms`). LLM-side fields (model, tokens, cost) are not visible to this server and are omitted.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `MCP_TRAJECTORY_FILE` | _(unset)_ | Path to write the ATIF trajectory. When unset, only the summary logs above are emitted. |
+| `MCP_TRAJECTORY_MAX_CONTENT` | `4096` | Max characters kept per argument/result value in the trajectory file (longer values are truncated). |
+| `MCP_TRAJECTORY_MAX_STEPS` | `10000` | Cap on steps retained in memory / written, to bound memory on long-running servers. |
+
+### Performance tuning
+
+When the server registers file watchers, it can eagerly open every workspace file. This is required by some language servers (`typescript-language-server`, `rust-analyzer`) to resolve cross-file features, but is unnecessary and slow for servers that index from disk (`gopls`, `pyright`). The behavior is auto-detected per language server and can be forced with `MCP_PREOPEN_FILES`:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `MCP_PREOPEN_FILES` | _(auto)_ | `true`/`false` to force or disable eagerly opening all workspace files. Auto disables it for `gopls`/`pyright` and enables it otherwise. |
+
 ### LSP interaction
 
 - `internal/lsp/methods.go` contains generated code to make calls to the connected language server.

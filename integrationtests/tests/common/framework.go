@@ -170,7 +170,7 @@ func (ts *TestSuite) Setup() error {
 	}
 	ts.t.Logf("LSP initialized with capabilities: %+v", initResult.Capabilities)
 
-	ts.Watcher = watcher.NewWorkspaceWatcher(client)
+	ts.Watcher = watcher.NewWorkspaceWatcherWithConfig(client, watcherConfigForCommand(ts.Config.Command))
 	go ts.Watcher.WatchWorkspace(ts.Context, workspaceDir)
 
 	if err := client.WaitForServerReady(ts.Context); err != nil {
@@ -225,6 +225,14 @@ func (ts *TestSuite) Cleanup() {
 		ts.t.Logf("Log file: %s", ts.logFile)
 		ts.t.Logf("To clean up, run: rm -rf %s", ts.TempDir)
 	})
+}
+
+// watcherConfigForCommand builds a watcher config, enabling file pre-open only
+// for language servers that require it (matching production behavior).
+func watcherConfigForCommand(command string) *watcher.WatcherConfig {
+	cfg := watcher.DefaultWatcherConfig()
+	cfg.PreopenAllFiles = watcher.ResolvePreopenMode(command)
+	return cfg
 }
 
 // ReadFile reads a file from the workspace
