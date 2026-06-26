@@ -192,7 +192,11 @@ func (c *Client) InitializeLSPClient(ctx context.Context, workspaceDir string) (
 	}
 
 	var result protocol.InitializeResult
-	if err := c.Call(ctx, "initialize", initParams, &result); err != nil {
+	// Bound the initialize handshake so a server that never answers fails fast
+	// instead of hanging the whole startup indefinitely.
+	initCtx, cancelInit := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelInit()
+	if err := c.Call(initCtx, "initialize", initParams, &result); err != nil {
 		return nil, fmt.Errorf("initialize failed: %w", err)
 	}
 
@@ -236,7 +240,7 @@ func (c *Client) Close() error {
 	c.CloseAllFiles(ctx)
 
 	// Force kill the LSP process if it doesn't exit within timeout
-	forcedKill := make(chan struct{})
+	stopForceKill := make(chan struct{})
 	go func() {
 		select {
 		case <-time.After(2 * time.Second):
@@ -248,9 +252,8 @@ func (c *Client) Close() error {
 					lspLogger.Info("Process killed successfully")
 				}
 			}
-			close(forcedKill)
-		case <-forcedKill:
-			// Channel closed from completion path
+		case <-stopForceKill:
+			// Process exited on its own; nothing to do.
 			return
 		}
 	}()
@@ -262,7 +265,9 @@ func (c *Client) Close() error {
 
 	// Wait for process to exit
 	err := c.Cmd.Wait()
-	close(forcedKill) // Stop the force kill goroutine
+	// Signal the force-kill goroutine to stop. Only this path closes the
+	// channel, so it can never be closed twice.
+	close(stopForceKill)
 
 	return err
 }

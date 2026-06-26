@@ -20,6 +20,10 @@ type TextEdit struct {
 }
 
 func ApplyTextEdits(ctx context.Context, client *lsp.Client, filePath string, edits []TextEdit) (string, error) {
+	if err := utilities.ConfinePath(filePath); err != nil {
+		return "", err
+	}
+
 	err := client.OpenFile(ctx, filePath)
 	if err != nil {
 		return "", fmt.Errorf("could not open file: %v", err)

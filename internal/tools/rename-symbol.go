@@ -14,6 +14,10 @@ import (
 // RenameSymbol renames a symbol (variable, function, class, etc.) at the specified position
 // It uses the LSP rename functionality to handle all references across files
 func RenameSymbol(ctx context.Context, client *lsp.Client, filePath string, line, column int, newName string) (string, error) {
+	if err := utilities.ConfinePath(filePath); err != nil {
+		return "", err
+	}
+
 	// Open the file if not already open
 	err := client.OpenFile(ctx, filePath)
 	if err != nil {

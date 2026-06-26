@@ -13,6 +13,7 @@ import (
 
 	"github.com/isaacphi/mcp-language-server/internal/logging"
 	"github.com/isaacphi/mcp-language-server/internal/lsp"
+	"github.com/isaacphi/mcp-language-server/internal/utilities"
 	"github.com/isaacphi/mcp-language-server/internal/watcher"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -83,6 +84,12 @@ func newServer(config *config) (*mcpServer, error) {
 func (s *mcpServer) initializeLSP() error {
 	if err := os.Chdir(s.config.workspaceDir); err != nil {
 		return fmt.Errorf("failed to change to workspace directory: %v", err)
+	}
+
+	// Confine all file mutations (edits, renames, creates, deletes) to the
+	// workspace so a tool call can't read or write outside the project root.
+	if err := utilities.SetWorkspaceRoot(s.config.workspaceDir); err != nil {
+		return fmt.Errorf("failed to set workspace root: %v", err)
 	}
 
 	client, err := lsp.NewClient(s.config.lspCommand, s.config.lspArgs...)

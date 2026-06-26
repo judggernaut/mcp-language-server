@@ -3,6 +3,7 @@ package utilities
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -1112,5 +1113,89 @@ func TestApplyWorkspaceEdit(t *testing.T) {
 				tt.checkState(t, mfs)
 			}
 		})
+	}
+}
+
+func TestConfinePath(t *testing.T) {
+	// EvalSymlinks the temp dir so comparisons match on platforms (e.g. macOS)
+	// where TempDir lives under a symlinked path like /var -> /private/var.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to resolve temp dir: %v", err)
+	}
+	outside, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to resolve temp dir: %v", err)
+	}
+
+	// A symlink inside the workspace that points outside of it.
+	escapeLink := filepath.Join(root, "escape")
+	if err := os.Symlink(outside, escapeLink); err != nil {
+		t.Fatalf("failed to create symlink: %v", err)
+	}
+
+	if err := SetWorkspaceRoot(root); err != nil {
+		t.Fatalf("SetWorkspaceRoot failed: %v", err)
+	}
+	defer func() { _ = SetWorkspaceRoot("") }()
+
+	tests := []struct {
+		name      string
+		path      string
+		expectErr bool
+	}{
+		{"file directly in root", filepath.Join(root, "main.go"), false},
+		{"nested file in root", filepath.Join(root, "pkg", "sub", "x.go"), false},
+		{"the root itself", root, false},
+		{"absolute path outside root", filepath.Join(outside, "secret.txt"), true},
+		{"parent traversal", filepath.Join(root, "..", "evil.txt"), true},
+		{"absolute system path", "/etc/passwd", true},
+		{"symlink escaping root", filepath.Join(escapeLink, "secret.txt"), true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ConfinePath(tt.path)
+			if tt.expectErr && err == nil {
+				t.Errorf("expected error for %q but got none", tt.path)
+			}
+			if !tt.expectErr && err != nil {
+				t.Errorf("unexpected error for %q: %v", tt.path, err)
+			}
+		})
+	}
+}
+
+func TestConfinePathDisabled(t *testing.T) {
+	// With no workspace root configured, confinement is a no-op.
+	_ = SetWorkspaceRoot("")
+	for _, p := range []string{"/etc/passwd", "relative/path.txt", "../escape.txt"} {
+		if err := ConfinePath(p); err != nil {
+			t.Errorf("expected no error when confinement disabled for %q, got %v", p, err)
+		}
+	}
+}
+
+func TestApplyTextEditsRejectsOutsideWorkspace(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to resolve temp dir: %v", err)
+	}
+	if err := SetWorkspaceRoot(root); err != nil {
+		t.Fatalf("SetWorkspaceRoot failed: %v", err)
+	}
+	defer func() { _ = SetWorkspaceRoot("") }()
+
+	err = ApplyTextEdits(protocol.DocumentUri("file:///etc/passwd"), []protocol.TextEdit{
+		{
+			Range:   protocol.Range{Start: protocol.Position{Line: 0}, End: protocol.Position{Line: 0}},
+			NewText: "pwned",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected ApplyTextEdits to reject a path outside the workspace")
+	}
+	if !strings.Contains(err.Error(), "outside workspace") {
+		t.Errorf("expected confinement error, got: %v", err)
 	}
 }

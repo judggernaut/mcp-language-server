@@ -42,6 +42,11 @@ func WriteMessage(w io.Writer, msg *Message) error {
 	return nil
 }
 
+// maxMessageSize bounds the Content-Length we are willing to allocate for a
+// single LSP message. A malformed or malicious server could otherwise send a
+// huge (or negative) Content-Length and cause an out-of-memory crash.
+const maxMessageSize = 100 * 1024 * 1024 // 100 MB
+
 // ReadMessage reads a single LSP message from the given reader
 func ReadMessage(r *bufio.Reader) (*Message, error) {
 	// Read headers
@@ -65,6 +70,15 @@ func ReadMessage(r *bufio.Reader) (*Message, error) {
 				return nil, fmt.Errorf("invalid Content-Length: %w", err)
 			}
 		}
+	}
+
+	// Validate the advertised content length before allocating. A non-positive
+	// value would be a protocol error (and a negative one would panic make).
+	if contentLength <= 0 {
+		return nil, fmt.Errorf("invalid or missing Content-Length: %d", contentLength)
+	}
+	if contentLength > maxMessageSize {
+		return nil, fmt.Errorf("Content-Length %d exceeds maximum allowed size %d", contentLength, maxMessageSize)
 	}
 
 	// Read content
@@ -96,6 +110,11 @@ func ReadMessage(r *bufio.Reader) (*Message, error) {
 
 // handleMessages reads and dispatches messages in a loop
 func (c *Client) handleMessages() {
+	// When the read loop exits (the LSP connection closed or errored), any
+	// in-flight Call would otherwise block forever waiting for a response that
+	// can never arrive. Fail them all so callers return promptly.
+	defer c.failPendingHandlers()
+
 	for {
 		msg, err := ReadMessage(c.stdout)
 		if err != nil {
@@ -176,9 +195,14 @@ func (c *Client) handleMessages() {
 		if msg.ID != nil && msg.ID.Value != nil && msg.Method == "" {
 			// Convert ID to string for map lookup
 			idStr := msg.ID.String()
-			c.handlersMu.RLock()
+			c.handlersMu.Lock()
 			ch, ok := c.handlers[idStr]
-			c.handlersMu.RUnlock()
+			if ok {
+				// Remove the handler before delivering so a duplicate
+				// response for the same ID can never send on a closed channel.
+				delete(c.handlers, idStr)
+			}
+			c.handlersMu.Unlock()
 
 			if ok {
 				lspLogger.Debug("Sending response for ID %v to handler", msg.ID)
@@ -188,6 +212,18 @@ func (c *Client) handleMessages() {
 				lspLogger.Debug("No handler for response ID: %v", msg.ID)
 			}
 		}
+	}
+}
+
+// failPendingHandlers closes every outstanding response channel so that any
+// blocked Call observes the connection going away and returns an error instead
+// of hanging indefinitely.
+func (c *Client) failPendingHandlers() {
+	c.handlersMu.Lock()
+	defer c.handlersMu.Unlock()
+	for id, ch := range c.handlers {
+		close(ch)
+		delete(c.handlers, id)
 	}
 }
 
@@ -223,10 +259,21 @@ func (c *Client) Call(ctx context.Context, method string, params any, result any
 
 	lspLogger.Debug("Waiting for response to request ID: %v", msg.ID)
 
-	// Wait for response
-	resp := <-ch
-
-	lspLogger.Debug("Received response for request ID: %v", msg.ID)
+	// Wait for the response or context cancellation. Without the context case
+	// a slow or unresponsive language server would block this call forever.
+	var resp *Message
+	select {
+	case resp = <-ch:
+		if resp == nil {
+			// Channel was closed without a response, i.e. the connection died.
+			lspLogger.Error("Request %s (id %v) failed: LSP connection closed", method, msg.ID)
+			return fmt.Errorf("request %s failed: LSP connection closed", method)
+		}
+		lspLogger.Debug("Received response for request ID: %v", msg.ID)
+	case <-ctx.Done():
+		lspLogger.Error("Request %s (id %v) aborted: %v", method, msg.ID, ctx.Err())
+		return fmt.Errorf("request %s aborted: %w", method, ctx.Err())
+	}
 
 	if resp.Error != nil {
 		lspLogger.Error("Request failed: %s (code: %d)", resp.Error.Message, resp.Error.Code)

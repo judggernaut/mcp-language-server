@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/isaacphi/mcp-language-server/internal/protocol"
@@ -20,9 +22,82 @@ var (
 	osRename    = os.Rename
 )
 
+// workspaceRoot, when set, confines all file mutations to a directory subtree.
+// It is stored as an absolute, symlink-resolved path. An empty value disables
+// confinement (preserving the previous unrestricted behaviour, e.g. in tests).
+var (
+	workspaceRoot   string
+	workspaceRootMu sync.RWMutex
+)
+
+// SetWorkspaceRoot restricts subsequent file operations to the given directory.
+// Passing an empty string disables confinement.
+func SetWorkspaceRoot(root string) error {
+	if root == "" {
+		workspaceRootMu.Lock()
+		workspaceRoot = ""
+		workspaceRootMu.Unlock()
+		return nil
+	}
+
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return fmt.Errorf("failed to resolve workspace root %q: %w", root, err)
+	}
+	// Resolve symlinks so confinement can't be bypassed via a symlinked root.
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+
+	workspaceRootMu.Lock()
+	workspaceRoot = filepath.Clean(abs)
+	workspaceRootMu.Unlock()
+	return nil
+}
+
+// ConfinePath returns an error if path resolves outside the configured
+// workspace root. It is a no-op when no workspace root has been set.
+func ConfinePath(path string) error {
+	workspaceRootMu.RLock()
+	root := workspaceRoot
+	workspaceRootMu.RUnlock()
+
+	if root == "" {
+		return nil
+	}
+
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("failed to resolve path %q: %w", path, err)
+	}
+	abs = filepath.Clean(abs)
+
+	// Resolve symlinks to catch links that point outside the workspace. For
+	// paths that don't exist yet (e.g. file creation), resolve the nearest
+	// existing parent instead.
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	} else if parent, perr := filepath.EvalSymlinks(filepath.Dir(abs)); perr == nil {
+		abs = filepath.Join(parent, filepath.Base(abs))
+	}
+
+	rel, err := filepath.Rel(root, abs)
+	if err != nil {
+		return fmt.Errorf("path %q is outside the workspace", path)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("refusing to operate on %q: outside workspace %q", path, root)
+	}
+	return nil
+}
+
 // ApplyTextEdits applies a sequence of text edits to a file specified by URI
 func ApplyTextEdits(uri protocol.DocumentUri, edits []protocol.TextEdit) error {
 	path := strings.TrimPrefix(string(uri), "file://")
+
+	if err := ConfinePath(path); err != nil {
+		return err
+	}
 
 	// Read the file content
 	content, err := osReadFile(path)
@@ -174,6 +249,9 @@ func ApplyTextEdit(lines []string, edit protocol.TextEdit, lineEnding string) ([
 func ApplyDocumentChange(change protocol.DocumentChange) error {
 	if change.CreateFile != nil {
 		path := strings.TrimPrefix(string(change.CreateFile.URI), "file://")
+		if err := ConfinePath(path); err != nil {
+			return err
+		}
 		if change.CreateFile.Options != nil {
 			if change.CreateFile.Options.Overwrite {
 				// Proceed with overwrite
@@ -190,6 +268,9 @@ func ApplyDocumentChange(change protocol.DocumentChange) error {
 
 	if change.DeleteFile != nil {
 		path := strings.TrimPrefix(string(change.DeleteFile.URI), "file://")
+		if err := ConfinePath(path); err != nil {
+			return err
+		}
 		if change.DeleteFile.Options != nil && change.DeleteFile.Options.Recursive {
 			if err := osRemoveAll(path); err != nil {
 				return fmt.Errorf("failed to delete directory recursively: %w", err)
@@ -204,6 +285,12 @@ func ApplyDocumentChange(change protocol.DocumentChange) error {
 	if change.RenameFile != nil {
 		oldPath := strings.TrimPrefix(string(change.RenameFile.OldURI), "file://")
 		newPath := strings.TrimPrefix(string(change.RenameFile.NewURI), "file://")
+		if err := ConfinePath(oldPath); err != nil {
+			return err
+		}
+		if err := ConfinePath(newPath); err != nil {
+			return err
+		}
 		if change.RenameFile.Options != nil {
 			if !change.RenameFile.Options.Overwrite {
 				if _, err := osStat(newPath); err == nil {
