@@ -31,6 +31,12 @@ type WorkspaceWatcher struct {
 	registrations  []protocol.FileSystemWatcher
 	registrationMu sync.RWMutex
 
+	// preopenTimer coalesces multiple registration batches (LSP servers often
+	// register watchers in more than one client/registerCapability call) into
+	// a single workspace-wide pre-open walk instead of one walk per batch.
+	preopenTimer   *time.Timer
+	preopenTimerMu sync.Mutex
+
 	// Gitignore matcher
 	gitignore *GitignoreMatcher
 }
@@ -136,7 +142,7 @@ func (w *WorkspaceWatcher) AddRegistrations(ctx context.Context, id string, watc
 		}
 	}
 
-	// Find and open all existing files that match the newly registered patterns.
+	// Find and open all existing files that match the registered patterns.
 	// Only some language servers (e.g. typescript) need every file open; for the
 	// rest this is skipped to avoid a slow, fd-hungry workspace-wide scan.
 	if !w.config.PreopenAllFiles {
@@ -144,44 +150,70 @@ func (w *WorkspaceWatcher) AddRegistrations(ctx context.Context, id string, watc
 		return
 	}
 
-	go func() {
-		startTime := time.Now()
-		filesOpened := 0
+	// LSP servers commonly send registrations in more than one batch (e.g.
+	// rust-analyzer registering once at startup and again shortly after).
+	// Debounce so a burst of AddRegistrations calls triggers exactly one
+	// workspace walk, covering the union of everything registered by then,
+	// instead of one redundant full walk per batch.
+	w.schedulePreopenScan(ctx)
+}
 
-		err := filepath.WalkDir(w.workspacePath, func(path string, d os.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
+// schedulePreopenScan (re)starts a short debounce timer for the workspace
+// pre-open walk. Each call cancels any pending timer, so a burst of
+// registration batches collapses into a single scan.
+func (w *WorkspaceWatcher) schedulePreopenScan(ctx context.Context) {
+	const debounce = 500 * time.Millisecond
 
-			// Skip directories that should be excluded
-			if d.IsDir() {
-				watcherLogger.Debug("Processing directory: %s", path)
-				if path != w.workspacePath && w.shouldExcludeDir(path) {
-					watcherLogger.Debug("Skipping excluded directory: %s", path)
-					return filepath.SkipDir
-				}
-			} else {
-				// Process files
-				w.openMatchingFile(ctx, path)
-				filesOpened++
+	w.preopenTimerMu.Lock()
+	defer w.preopenTimerMu.Unlock()
 
-				// Add a small delay after every 100 files to prevent overwhelming the server
-				if filesOpened%100 == 0 {
-					time.Sleep(10 * time.Millisecond)
-				}
-			}
+	if w.preopenTimer != nil {
+		w.preopenTimer.Stop()
+	}
+	w.preopenTimer = time.AfterFunc(debounce, func() {
+		w.runPreopenScan(ctx)
+	})
+}
 
-			return nil
-		})
+// runPreopenScan walks the workspace once and opens every file that matches
+// the server's current watch registrations.
+func (w *WorkspaceWatcher) runPreopenScan(ctx context.Context) {
+	startTime := time.Now()
+	filesOpened := 0
 
-		elapsedTime := time.Since(startTime)
-		watcherLogger.Info("Workspace scan complete: processed %d files in %.2f seconds",
-			filesOpened, elapsedTime.Seconds())
-
+	err := filepath.WalkDir(w.workspacePath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			watcherLogger.Error("Error scanning workspace for files to open: %v", err)
+			return err
 		}
-	}()
+
+		// Skip directories that should be excluded
+		if d.IsDir() {
+			watcherLogger.Debug("Processing directory: %s", path)
+			if path != w.workspacePath && w.shouldExcludeDir(path) {
+				watcherLogger.Debug("Skipping excluded directory: %s", path)
+				return filepath.SkipDir
+			}
+		} else {
+			// Process files
+			w.openMatchingFile(ctx, path)
+			filesOpened++
+
+			// Add a small delay after every 100 files to prevent overwhelming the server
+			if filesOpened%100 == 0 {
+				time.Sleep(10 * time.Millisecond)
+			}
+		}
+
+		return nil
+	})
+
+	elapsedTime := time.Since(startTime)
+	watcherLogger.Info("Workspace scan complete: processed %d files in %.2f seconds",
+		filesOpened, elapsedTime.Seconds())
+
+	if err != nil {
+		watcherLogger.Error("Error scanning workspace for files to open: %v", err)
+	}
 }
 
 // WatchWorkspace sets up file watching for a workspace
