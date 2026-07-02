@@ -201,10 +201,6 @@ func (c *Client) InitializeLSPClient(ctx context.Context, workspaceDir string) (
 		return nil, fmt.Errorf("initialize failed: %w", err)
 	}
 
-	if err := c.Notify(ctx, "initialized", struct{}{}); err != nil {
-		return nil, fmt.Errorf("initialized notification failed: %w", err)
-	}
-
 	// Register handlers
 	c.RegisterServerRequestHandler("workspace/applyEdit", HandleApplyEdit)
 	c.RegisterServerRequestHandler("workspace/configuration", HandleWorkspaceConfiguration)
@@ -213,9 +209,12 @@ func (c *Client) InitializeLSPClient(ctx context.Context, workspaceDir string) (
 	c.RegisterNotificationHandler("textDocument/publishDiagnostics",
 		func(params json.RawMessage) { HandleDiagnostics(c, params) })
 
-	// Notify the LSP server
-	err := c.Initialized(ctx, protocol.InitializedParams{})
-	if err != nil {
+	// Notify the LSP server that the client is ready. This must be sent
+	// exactly once: sending it twice (as a prior version of this code did,
+	// via both a raw Notify("initialized", ...) here and this call) makes
+	// some servers (observed: rust-analyzer) log an "unhandled notification"
+	// error for the second one since they only expect it once per session.
+	if err := c.Initialized(ctx, protocol.InitializedParams{}); err != nil {
 		return nil, fmt.Errorf("initialization failed: %w", err)
 	}
 
