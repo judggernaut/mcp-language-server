@@ -36,11 +36,13 @@ func TestFindReferences(t *testing.T) {
 
 	suite := internal.GetTestSuite(t)
 
+	// Open all files and wait for clangd to index them. This runs against the
+	// broader suite context so the fixed indexing wait doesn't eat into the
+	// timeout budget for the actual FindReferences calls below.
+	openAllFilesAndWait(suite, suite.Context)
+
 	ctx, cancel := context.WithTimeout(suite.Context, 30*time.Second) // Increased timeout for clangd references
 	defer cancel()
-
-	// Open all files and wait for clangd to index them
-	openAllFilesAndWait(suite, ctx)
 
 	tests := []struct {
 		name          string
