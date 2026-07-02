@@ -37,6 +37,17 @@ type WorkspaceWatcher struct {
 	preopenTimer   *time.Timer
 	preopenTimerMu sync.Mutex
 
+	// preopenScanMu serializes the actual workspace walk so registration
+	// batches that arrive further apart than the debounce window (observed:
+	// rust-analyzer sending two batches ~10s apart on a large monorepo) queue
+	// behind an in-flight scan instead of running a second full walk
+	// concurrently. preopenRescanPending records that at least one more scan
+	// is needed once the current one finishes, so we do exactly one follow-up
+	// walk covering everything registered by then instead of one per batch.
+	preopenScanMu        sync.Mutex
+	preopenScanning      bool
+	preopenRescanPending bool
+
 	// Gitignore matcher
 	gitignore *GitignoreMatcher
 }
@@ -171,8 +182,42 @@ func (w *WorkspaceWatcher) schedulePreopenScan(ctx context.Context) {
 		w.preopenTimer.Stop()
 	}
 	w.preopenTimer = time.AfterFunc(debounce, func() {
-		w.runPreopenScan(ctx)
+		w.startPreopenScan(ctx)
 	})
+}
+
+// startPreopenScan runs the workspace walk, serialized so at most one runs at
+// a time. If a scan is already in flight when this fires (registrations
+// arrived further apart than the debounce window, e.g. two batches ~10s
+// apart on a large workspace), it just records that another pass is needed
+// and returns instead of starting a second walk concurrently with the first.
+// A concurrent walk would otherwise race client.OpenFile for any file both
+// walks match, which previously surfaced as hundreds of "duplicate
+// DidOpenTextDocument" errors from the LSP server on large repos.
+func (w *WorkspaceWatcher) startPreopenScan(ctx context.Context) {
+	w.preopenScanMu.Lock()
+	if w.preopenScanning {
+		w.preopenRescanPending = true
+		w.preopenScanMu.Unlock()
+		return
+	}
+	w.preopenScanning = true
+	w.preopenScanMu.Unlock()
+
+	for {
+		w.runPreopenScan(ctx)
+
+		w.preopenScanMu.Lock()
+		if !w.preopenRescanPending {
+			w.preopenScanning = false
+			w.preopenScanMu.Unlock()
+			return
+		}
+		w.preopenRescanPending = false
+		w.preopenScanMu.Unlock()
+		// Loop to run exactly one more scan covering whatever was registered
+		// while the previous scan was running.
+	}
 }
 
 // runPreopenScan walks the workspace once and opens every file that matches
