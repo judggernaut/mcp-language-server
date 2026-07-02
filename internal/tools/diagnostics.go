@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -26,20 +27,28 @@ func GetDiagnosticsForFile(ctx context.Context, client *lsp.Client, filePath str
 		return "", fmt.Errorf("could not open file: %v", err)
 	}
 
-	// Wait for diagnostics
-	// TODO: wait for notification
-	time.Sleep(time.Second * 3)
-
 	// Convert the file path to URI format
 	uri := protocol.DocumentUri("file://" + filePath)
 
-	// Request fresh diagnostics
+	// Wait for the LSP to publish diagnostics for this file (push mode).
+	// 3s upper bound matches the previous hardcoded sleep this replaces;
+	// the 150ms settle window absorbs quick follow-up republishes some
+	// servers send after an initial partial pass.
+	client.WaitForDiagnostics(ctx, uri, 3*time.Second, 150*time.Millisecond)
+
+	// Also attempt pull-mode (textDocument/diagnostic) for servers that
+	// support it, and merge a successful response into the cache. Push-only
+	// servers return "method not found", which is expected, not an error,
+	// since the cache is already populated from publishDiagnostics above.
+	// This also covers servers (observed: gopls) whose pull response can be
+	// ahead of what's arrived so far via push notifications.
 	diagParams := protocol.DocumentDiagnosticParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
 	}
-	_, err = client.Diagnostic(ctx, diagParams)
-	if err != nil {
-		toolsLogger.Error("Failed to get diagnostics: %v", err)
+	if report, err := client.Diagnostic(ctx, diagParams); err != nil {
+		toolsLogger.Debug("Pull-mode diagnostic request unavailable: %v", err)
+	} else {
+		client.UpdateDiagnosticsFromReport(uri, report)
 	}
 
 	// Get diagnostics from the cache
@@ -48,6 +57,17 @@ func GetDiagnosticsForFile(ctx context.Context, client *lsp.Client, filePath str
 	if len(diagnostics) == 0 {
 		return "No diagnostics found for " + filePath, nil
 	}
+
+	// Sort by position so output is stable and reads top-to-bottom regardless
+	// of which transport (push notification vs pull request) last populated
+	// the cache, since those can order the same diagnostics differently.
+	diagnostics = append([]protocol.Diagnostic(nil), diagnostics...)
+	sort.SliceStable(diagnostics, func(i, j int) bool {
+		if diagnostics[i].Range.Start.Line != diagnostics[j].Range.Start.Line {
+			return diagnostics[i].Range.Start.Line < diagnostics[j].Range.Start.Line
+		}
+		return diagnostics[i].Range.Start.Character < diagnostics[j].Range.Start.Character
+	})
 
 	// Format file header
 	fileInfo := fmt.Sprintf("%s\nDiagnostics in File: %d\n",

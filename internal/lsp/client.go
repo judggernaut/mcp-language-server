@@ -42,6 +42,12 @@ type Client struct {
 	diagnostics   map[protocol.DocumentUri][]protocol.Diagnostic
 	diagnosticsMu sync.RWMutex
 
+	// Per-URI waiters woken when textDocument/publishDiagnostics arrives for
+	// that URI. Lets WaitForDiagnostics block on the actual event instead of
+	// a fixed sleep.
+	diagnosticWaiters   map[protocol.DocumentUri][]chan struct{}
+	diagnosticWaitersMu sync.Mutex
+
 	// Files are currently opened by the LSP
 	openFiles   map[string]*OpenFileInfo
 	openFilesMu sync.RWMutex
@@ -76,6 +82,7 @@ func NewClient(command string, args ...string) (*Client, error) {
 		notificationHandlers:  make(map[string]NotificationHandler),
 		serverRequestHandlers: make(map[string]ServerRequestHandler),
 		diagnostics:           make(map[protocol.DocumentUri][]protocol.Diagnostic),
+		diagnosticWaiters:     make(map[protocol.DocumentUri][]chan struct{}),
 		openFiles:             make(map[string]*OpenFileInfo),
 	}
 
@@ -286,6 +293,73 @@ func (c *Client) WaitForServerReady(ctx context.Context) error {
 	return nil
 }
 
+// WaitForDiagnostics blocks until the LSP's diagnostic publishes for uri go
+// quiet, or the overall timeout elapses, whichever comes first. If
+// diagnostics are already cached for uri (e.g. from an earlier publish), it
+// returns immediately. Otherwise it waits for the first publish, then keeps
+// waiting up to settle after each subsequent publish so a burst of quick
+// follow-ups (some servers publish an initial partial pass before a fuller
+// one) is fully absorbed rather than just the first one, all bounded by the
+// overall timeout. The caller is expected to read the cache via
+// GetFileDiagnostics after this returns.
+func (c *Client) WaitForDiagnostics(ctx context.Context, uri protocol.DocumentUri, timeout, settle time.Duration) {
+	c.diagnosticsMu.RLock()
+	_, hasExisting := c.diagnostics[uri]
+	c.diagnosticsMu.RUnlock()
+	if hasExisting {
+		return
+	}
+
+	ch := make(chan struct{}, 1)
+	c.diagnosticWaitersMu.Lock()
+	c.diagnosticWaiters[uri] = append(c.diagnosticWaiters[uri], ch)
+	c.diagnosticWaitersMu.Unlock()
+
+	defer func() {
+		c.diagnosticWaitersMu.Lock()
+		waiters := c.diagnosticWaiters[uri]
+		for i, w := range waiters {
+			if w == ch {
+				c.diagnosticWaiters[uri] = append(waiters[:i], waiters[i+1:]...)
+				break
+			}
+		}
+		if len(c.diagnosticWaiters[uri]) == 0 {
+			delete(c.diagnosticWaiters, uri)
+		}
+		c.diagnosticWaitersMu.Unlock()
+	}()
+
+	deadline := time.Now().Add(timeout)
+	receivedAny := false
+	for {
+		wait := time.Until(deadline)
+		if receivedAny && settle < wait {
+			wait = settle
+		}
+		if wait <= 0 {
+			return
+		}
+
+		timer := time.NewTimer(wait)
+		select {
+		case <-ch:
+			timer.Stop()
+			receivedAny = true
+			// Loop: wait up to settle again for a possible follow-up publish,
+			// still bounded by the overall deadline above.
+		case <-timer.C:
+			if !receivedAny {
+				lspLogger.Debug("WaitForDiagnostics timed out for %s after %s", uri, timeout)
+			}
+			return
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		}
+	}
+}
+
 type OpenFileInfo struct {
 	Version int32
 	URI     protocol.DocumentUri
@@ -474,4 +548,44 @@ func (c *Client) GetFileDiagnostics(uri protocol.DocumentUri) []protocol.Diagnos
 	defer c.diagnosticsMu.RUnlock()
 
 	return c.diagnostics[uri]
+}
+
+// RecordDiagnostics stores diagnostics for uri and wakes any WaitForDiagnostics
+// callers blocked on it. Used both for server-pushed textDocument/publishDiagnostics
+// notifications and for pull-mode textDocument/diagnostic responses (see
+// UpdateDiagnosticsFromReport), so the cache reflects whichever source last
+// reported for a given file, and callers waiting on either see it.
+func (c *Client) RecordDiagnostics(uri protocol.DocumentUri, diagnostics []protocol.Diagnostic) {
+	c.diagnosticsMu.Lock()
+	c.diagnostics[uri] = diagnostics
+	c.diagnosticsMu.Unlock()
+
+	c.diagnosticWaitersMu.Lock()
+	waiters := c.diagnosticWaiters[uri]
+	c.diagnosticWaitersMu.Unlock()
+	for _, w := range waiters {
+		select {
+		case w <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// UpdateDiagnosticsFromReport merges a pull-mode textDocument/diagnostic
+// response into the diagnostics cache. A "full" report carries the server's
+// current diagnostics for the document and is recorded as-is; an "unchanged"
+// report means the previously cached diagnostics are still current, so it is
+// a no-op. Pull-mode responses can be fresher than what's arrived so far via
+// push notifications (observed: gopls's push notifications can lag its pull
+// response by several seconds), so this keeps the cache from going stale
+// when a caller explicitly polls.
+func (c *Client) UpdateDiagnosticsFromReport(uri protocol.DocumentUri, report protocol.DocumentDiagnosticReport) {
+	switch v := report.Value.(type) {
+	case protocol.RelatedFullDocumentDiagnosticReport:
+		c.RecordDiagnostics(uri, v.Items)
+	case protocol.RelatedUnchangedDocumentDiagnosticReport:
+		// Cache already holds the current diagnostics; nothing to update.
+	default:
+		lspLogger.Debug("UpdateDiagnosticsFromReport: unhandled report type %T for %s", v, uri)
+	}
 }
