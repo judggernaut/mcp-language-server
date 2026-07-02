@@ -43,6 +43,12 @@ func RenameSymbol(ctx context.Context, client *lsp.Client, filePath string, line
 	// Skip the PrepareRename check as it might not be supported by all language servers
 	// Execute the rename directly
 
+	// Sync the server's view of every open file to disk before planning the
+	// rename. Without this, a file edited on disk after being opened (outside
+	// this client) leaves the server's buffer stale, so the rename's ranges
+	// land at the wrong offsets in the current file and silently corrupt it.
+	client.SyncOpenFiles(ctx)
+
 	// Execute the rename operation
 	workspaceEdit, err := client.Rename(ctx, params)
 	if err != nil {

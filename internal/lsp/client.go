@@ -384,6 +384,32 @@ func (c *Client) NotifyChange(ctx context.Context, filepath string) error {
 	return c.Notify(ctx, "textDocument/didChange", params)
 }
 
+// SyncOpenFiles re-sends every currently open file's on-disk content to the
+// server via didChange. A file can be edited on disk by something other than
+// this client after the server opened it (another tool, another process, a
+// checkout), leaving the server's buffer stale. Callers that plan an edit
+// from the server's view of a document (e.g. RenameSymbol computing a
+// WorkspaceEdit) must call this first: otherwise the edit's ranges are
+// computed against the stale buffer and land at the wrong offsets in the
+// current on-disk file, silently corrupting it while still reporting success.
+func (c *Client) SyncOpenFiles(ctx context.Context) {
+	c.openFilesMu.RLock()
+	uris := make([]string, 0, len(c.openFiles))
+	for uri := range c.openFiles {
+		uris = append(uris, uri)
+	}
+	c.openFilesMu.RUnlock()
+
+	for _, uri := range uris {
+		path := strings.TrimPrefix(uri, "file://")
+		if err := c.NotifyChange(ctx, path); err != nil {
+			// Unreadable (e.g. deleted since being opened): leave it stale.
+			// A subsequent edit attempt on it will fail rather than corrupt it.
+			lspLogger.Debug("SyncOpenFiles: skipping %s: %v", path, err)
+		}
+	}
+}
+
 func (c *Client) CloseFile(ctx context.Context, filepath string) error {
 	uri := fmt.Sprintf("file://%s", filepath)
 
