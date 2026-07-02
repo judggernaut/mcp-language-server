@@ -295,16 +295,32 @@ type OpenFileInfo struct {
 func (c *Client) OpenFile(ctx context.Context, filepath string) error {
 	uri := fmt.Sprintf("file://%s", filepath)
 
+	// Claim this URI before doing any I/O. The previous check-then-act (check
+	// under lock, unlock, then read+notify, then lock again to record it) let
+	// two concurrent OpenFile calls for the same file both pass the "not open
+	// yet" check before either recorded it, so both sent their own
+	// textDocument/didOpen for the same file. This is exactly what happens
+	// when two workspace pre-open scans overlap: observed as hundreds of
+	// "duplicate DidOpenTextDocument" errors from rust-analyzer in one
+	// session. Recording the claim first makes the second caller's check see
+	// it immediately and return early instead of racing.
 	c.openFilesMu.Lock()
 	if _, exists := c.openFiles[uri]; exists {
 		c.openFilesMu.Unlock()
-		return nil // Already open
+		return nil // Already open (or another caller is opening it)
+	}
+	c.openFiles[uri] = &OpenFileInfo{
+		Version: 1,
+		URI:     protocol.DocumentUri(uri),
 	}
 	c.openFilesMu.Unlock()
 
 	// Skip files that do not exist or cannot be read
 	content, err := os.ReadFile(filepath)
 	if err != nil {
+		c.openFilesMu.Lock()
+		delete(c.openFiles, uri)
+		c.openFilesMu.Unlock()
 		return fmt.Errorf("error reading file: %w", err)
 	}
 
@@ -318,15 +334,12 @@ func (c *Client) OpenFile(ctx context.Context, filepath string) error {
 	}
 
 	if err := c.Notify(ctx, "textDocument/didOpen", params); err != nil {
+		// Roll back the claim so a later call can retry opening this file.
+		c.openFilesMu.Lock()
+		delete(c.openFiles, uri)
+		c.openFilesMu.Unlock()
 		return err
 	}
-
-	c.openFilesMu.Lock()
-	c.openFiles[uri] = &OpenFileInfo{
-		Version: 1,
-		URI:     protocol.DocumentUri(uri),
-	}
-	c.openFilesMu.Unlock()
 
 	lspLogger.Debug("Opened file: %s", filepath)
 
