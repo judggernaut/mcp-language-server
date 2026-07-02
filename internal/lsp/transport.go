@@ -32,13 +32,16 @@ func WriteMessage(w io.Writer, msg *Message) error {
 		wireLogger.Debug("-> Sending: %s", string(data))
 	}
 
-	_, err = fmt.Fprintf(w, "Content-Length: %d\r\n\r\n", len(data))
-	if err != nil {
-		return fmt.Errorf("failed to write header: %w", err)
-	}
+	header := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(data))
+	// Build the header and body into one buffer so this is a single Write
+	// call. Two separate writes (as before) both cost an extra syscall and,
+	// more importantly, give a concurrent writer on the same stream a window
+	// to interleave its own bytes in between them.
+	payload := make([]byte, 0, len(header)+len(data))
+	payload = append(payload, header...)
+	payload = append(payload, data...)
 
-	_, err = w.Write(data)
-	if err != nil {
+	if _, err := w.Write(payload); err != nil {
 		return fmt.Errorf("failed to write message: %w", err)
 	}
 
