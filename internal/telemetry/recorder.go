@@ -44,6 +44,15 @@ type Recorder struct {
 	totalSteps  int
 	droppedSeen bool
 	inFlight    map[string]time.Time
+
+	// writeMu serializes actual disk writes between the background writer
+	// loop and Close()'s final flush, so they can never race on the same
+	// temp file.
+	writeMu sync.Mutex
+	// writeSignal wakes the background writer loop. It is buffered(1) and
+	// non-blocking to send on: a burst of Record() calls coalesces into a
+	// single pending write instead of one disk write per tool call.
+	writeSignal chan struct{}
 }
 
 // NewRecorder builds a Recorder configured from the environment. agentVersion
@@ -81,7 +90,31 @@ func NewRecorder(agentVersion string) *Recorder {
 				"available to this server and are intentionally omitted.",
 		},
 	}
+	if r.filePath != "" {
+		r.writeSignal = make(chan struct{}, 1)
+		go r.writeLoop()
+	}
 	return r
+}
+
+// writeLoop runs for the lifetime of the process, writing the trajectory to
+// disk each time Record() signals new data. Runs off the tool-call hot path
+// so a slow disk doesn't add latency to every MCP response, and coalesces
+// bursts of tool calls (via the buffered, non-blocking signal channel) into
+// however few writes the disk can keep up with.
+func (r *Recorder) writeLoop() {
+	for range r.writeSignal {
+		r.mu.Lock()
+		trajCopy := r.snapshotLocked()
+		r.mu.Unlock()
+
+		r.writeMu.Lock()
+		err := writeTrajectory(r.filePath, trajCopy)
+		r.writeMu.Unlock()
+		if err != nil {
+			telemetryLogger.Error("failed to write trajectory file %s: %v", r.filePath, err)
+		}
+	}
 }
 
 // FileEnabled reports whether the full trajectory is being written to disk.
@@ -152,16 +185,19 @@ func (r *Recorder) Record(callID, tool string, args map[string]any, resultConten
 		r.droppedSeen = true
 		telemetryLogger.Warn("trajectory step cap (%d) reached; further steps are counted but not written", r.maxSteps)
 	}
-
-	trajCopy := r.snapshotLocked()
 	r.mu.Unlock()
 
-	if err := writeTrajectory(r.filePath, trajCopy); err != nil {
-		telemetryLogger.Error("failed to write trajectory file %s: %v", r.filePath, err)
+	// Wake the background writer instead of writing to disk inline. If a
+	// write is already pending, this is a no-op: that write will pick up
+	// this step too since it reads the latest state when it runs.
+	select {
+	case r.writeSignal <- struct{}{}:
+	default:
 	}
 }
 
-// Close performs a final flush of the trajectory file.
+// Close performs a final, synchronous flush of the trajectory file so the
+// last recorded step is guaranteed to be on disk before the process exits.
 func (r *Recorder) Close() {
 	if r == nil || r.filePath == "" {
 		return
@@ -169,6 +205,9 @@ func (r *Recorder) Close() {
 	r.mu.Lock()
 	trajCopy := r.snapshotLocked()
 	r.mu.Unlock()
+
+	r.writeMu.Lock()
+	defer r.writeMu.Unlock()
 	if err := writeTrajectory(r.filePath, trajCopy); err != nil {
 		telemetryLogger.Error("failed to write trajectory file %s: %v", r.filePath, err)
 	}
