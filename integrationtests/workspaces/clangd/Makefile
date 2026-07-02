@@ -4,7 +4,7 @@ LD = clang++
 # --- Include Path Configuration (from your original Makefile) ---
 # This section attempts to get all system include directories from clang++
 # and add them explicitly so clang tidy can find them. 
-CXX_INCLUDE_DIRS := $(shell clang++ -E -x c++ - -v < /dev/null 2>&1 | grep -A 20 '#include <...>' | grep '^ ' | sed 's/^ //' | grep -v '(framework directory)')
+CXX_INCLUDE_DIRS := $(shell clang++ -E -x c++ - -v < /dev/null 2>&1 | grep -A 20 '\#include <...>' | grep '^ ' | sed 's/^ //' | grep -v '(framework directory)')
 CXX_INCLUDE_FLAGS := $(foreach dir,$(CXX_INCLUDE_DIRS),-isystem $(dir))
 CXXFLAGS = -std=c++17 -I./include -Wunreachable-code -Wall -Wextra -Wno-error $(CXX_INCLUDE_FLAGS)
 
