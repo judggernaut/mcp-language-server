@@ -17,10 +17,11 @@ import (
 )
 
 type Client struct {
-	Cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout *bufio.Reader
-	stderr io.ReadCloser
+	Cmd     *exec.Cmd
+	stdin   io.WriteCloser
+	stdinMu sync.Mutex // serializes writes to stdin; WriteMessage does two separate Write calls, which would otherwise interleave with concurrent callers and corrupt the wire protocol
+	stdout  *bufio.Reader
+	stderr  io.ReadCloser
 
 	// Request ID counter
 	nextID atomic.Int32
