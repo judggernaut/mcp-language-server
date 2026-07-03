@@ -156,6 +156,31 @@ This is an [MCP](https://modelcontextprotocol.io/introduction) server that runs 
   </div>
 </details>
 <details>
+  <summary>C# (csharp-ls)</summary>
+  <div>
+    <p><strong>Install the .NET SDK</strong>: csharp-ls requires a recent .NET SDK. See <a href="https://dotnet.microsoft.com/download">dotnet.microsoft.com/download</a>.</p>
+    <p><strong>Install csharp-ls</strong>: <code>dotnet tool install --global csharp-ls</code>. Make sure <code>~/.dotnet/tools</code> is on your <code>PATH</code>.</p>
+    <p><strong>Configure your MCP client</strong>: This will be different but similar for each client. For Claude Desktop, add the following to <code>~/Library/Application\ Support/Claude/claude_desktop_config.json</code></p>
+
+<pre>
+{
+  "mcpServers": {
+    "language-server": {
+      "command": "mcp-language-server",
+      "args": [
+        "--workspace",
+        "/Users/you/dev/yourproject/",
+        "--lsp",
+        "csharp-ls"
+      ]
+    }
+  }
+}
+</pre>
+    <p><strong>Note</strong>: csharp-ls discovers your <code>.sln</code>/<code>.csproj</code> from the workspace root automatically; passing <code>-s /path/to/your.sln</code> as an extra argument is only needed for more complex, multi-solution repos.</p>
+  </div>
+</details>
+<details>
   <summary>Other</summary>
   <div>
     <p>I have only tested this repo with the servers above but it should be compatible with many more. Note:</p>
@@ -304,7 +329,7 @@ The server can shut itself down automatically after a period with no MCP request
 
 There is a snapshot test suite that makes it a lot easier to try out changes to tools. These run actual language servers on mock workspaces and capture output and logs.
 
-You will need the language servers installed locally to run them. There are tests for go, rust, python, and typescript.
+You will need the language servers installed locally to run them. There are tests for go, rust, python, typescript, clangd (C/C++), and csharp-ls (C#).
 
 ```
 integrationtests/

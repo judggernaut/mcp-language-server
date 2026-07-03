@@ -1,0 +1,58 @@
+---
+
+Symbol: SharedType
+File: /TEST_OUTPUT/workspace/Types.cs
+Kind: Enum
+Range: L1:C1 - L50:C1
+
+ 1|namespace Workspace;
+ 2|
+ 3|// SharedClass is a class used across multiple files
+ 4|public class SharedClass : SharedInterface
+ 5|{
+ 6|    public int Id;
+ 7|    public string Name = "";
+ 8|    public double Value;
+ 9|    public List<string> Constants = new();
+10|
+11|    // Method is a method of SharedClass
+12|    public string Method()
+13|    {
+14|        return Name;
+15|    }
+16|
+17|    // Process implements SharedInterface for SharedClass
+18|    public void Process()
+19|    {
+20|        Console.WriteLine($"Processing {Name} with ID {Id}");
+21|    }
+22|
+23|    // GetName implements SharedInterface for SharedClass
+24|    public string GetName()
+25|    {
+26|        return Name;
+27|    }
+28|}
+29|
+30|// SharedInterface defines behavior implemented across files
+31|public interface SharedInterface
+32|{
+33|    void Process();
+34|    string GetName();
+35|}
+36|
+37|public static class SharedConstants
+38|{
+39|    // SharedConstant is used in multiple files
+40|    public const string SharedConstant = "shared value";
+41|}
+42|
+43|// SharedType is a custom type used across files
+44|public enum SharedType
+45|{
+46|    First = 1,
+47|    Second = 2,
+48|    Third = 3,
+49|}
+50|
+

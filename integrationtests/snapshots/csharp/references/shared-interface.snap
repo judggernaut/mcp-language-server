@@ -1,0 +1,67 @@
+---
+
+/TEST_OUTPUT/workspace/AnotherConsumer.cs
+References in File: 2
+At: L30:C9, L43:C34
+
+1|namespace Workspace;
+...
+25|
+26|        // Implement the interface with a custom type through composition
+27|        var custom = new CustomImplementor(s);
+28|
+29|        // Custom type implements SharedInterface
+30|        SharedInterface iface = custom;
+31|        iface.Process();
+32|
+33|        // Use shared type as a list
+34|        var values = new List<SharedType> { SharedType.First, SharedType.Second, SharedType.Third };
+35|        foreach (var v in values)
+...
+38|        }
+39|    }
+40|}
+41|
+42|// CustomImplementor implements SharedInterface by wrapping a SharedClass
+43|public class CustomImplementor : SharedInterface
+44|{
+45|    private readonly SharedClass _inner;
+46|
+47|    public CustomImplementor(SharedClass inner)
+48|    {
+
+---
+
+/TEST_OUTPUT/workspace/Consumer.cs
+References in File: 1
+At: L25:C9
+
+1|namespace Workspace;
+...
+20|        // Call methods on the class
+21|        Console.WriteLine(s.Method());
+22|        s.Process();
+23|
+24|        // Use shared interface
+25|        SharedInterface iface = s;
+26|        Console.WriteLine(iface.GetName());
+27|
+28|        // Use shared type
+29|        SharedType t = SharedType.First;
+30|        Console.WriteLine(t);
+
+---
+
+/TEST_OUTPUT/workspace/Types.cs
+References in File: 1
+At: L4:C28
+
+ 1|namespace Workspace;
+ 2|
+ 3|// SharedClass is a class used across multiple files
+ 4|public class SharedClass : SharedInterface
+ 5|{
+ 6|    public int Id;
+ 7|    public string Name = "";
+ 8|    public double Value;
+ 9|    public List<string> Constants = new();

@@ -176,3 +176,29 @@ jobs:
 
       - name: Run Clangd rename_symbol tests
         run: go test ./integrationtests/tests/clangd/rename_symbol/...
+
+  csharp-integration-tests:
+    name: C# Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          check-latest: true
+          cache: true
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Install csharp-ls
+        run: |
+          dotnet tool install --global csharp-ls
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      - name: Run C# integration tests
+        run: go test -p 1 ./integrationtests/tests/csharp/...

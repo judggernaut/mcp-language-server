@@ -9,6 +9,8 @@ integrationtests/workspaces/clangd/src/*.o
 integrationtests/workspaces/clangd/clean_program
 integrationtests/workspaces/clangd/program
 integrationtests/workspaces/clangd/.cache
+integrationtests/workspaces/csharp/bin/
+integrationtests/workspaces/csharp/obj/
 
 
 # Temporary files

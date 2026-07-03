@@ -1,0 +1,38 @@
+---
+
+/TEST_OUTPUT/workspace/AnotherConsumer.cs
+References in File: 4
+At: L34:C31, L34:C45, L34:C63, L34:C82
+
+1|namespace Workspace;
+...
+29|        // Custom type implements SharedInterface
+30|        SharedInterface iface = custom;
+31|        iface.Process();
+32|
+33|        // Use shared type as a list
+34|        var values = new List<SharedType> { SharedType.First, SharedType.Second, SharedType.Third };
+35|        foreach (var v in values)
+36|        {
+37|            Console.WriteLine("Value: " + v);
+38|        }
+39|    }
+
+---
+
+/TEST_OUTPUT/workspace/Consumer.cs
+References in File: 2
+At: L29:C9, L29:C24
+
+1|namespace Workspace;
+...
+24|        // Use shared interface
+25|        SharedInterface iface = s;
+26|        Console.WriteLine(iface.GetName());
+27|
+28|        // Use shared type
+29|        SharedType t = SharedType.First;
+30|        Console.WriteLine(t);
+31|    }
+32|}
+33|

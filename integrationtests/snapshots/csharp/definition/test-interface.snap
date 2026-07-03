@@ -1,0 +1,53 @@
+---
+
+Symbol: TestInterface
+File: /TEST_OUTPUT/workspace/Clean.cs
+Kind: Interface
+Range: L1:C1 - L45:C1
+
+ 1|namespace Workspace;
+ 2|
+ 3|// TestClass is a test class with fields and methods
+ 4|public class TestClass
+ 5|{
+ 6|    public string Name = "";
+ 7|    public int Age;
+ 8|
+ 9|    // Method is a method on TestClass
+10|    public string Method()
+11|    {
+12|        return Name;
+13|    }
+14|}
+15|
+16|// TestInterface defines a simple interface
+17|public interface TestInterface
+18|{
+19|    void DoSomething();
+20|}
+21|
+22|public static class TestConstants
+23|{
+24|    // TestConstant is a constant
+25|    public const string TestConstant = "constant value";
+26|}
+27|
+28|public static class Globals
+29|{
+30|    // TestVariable is a static field
+31|    public static int TestVariable = 42;
+32|
+33|    // TestFunction is a function for testing
+34|    public static void TestFunction()
+35|    {
+36|        Console.WriteLine("This is a test function");
+37|    }
+38|
+39|    // CleanFunction is a clean function without errors
+40|    public static void CleanFunction()
+41|    {
+42|        Console.WriteLine("This is a clean function without errors");
+43|    }
+44|}
+45|
+

@@ -1,0 +1,39 @@
+---
+
+/TEST_OUTPUT/workspace/AnotherConsumer.cs
+References in File: 1
+At: L8:C49
+
+1|namespace Workspace;
+...
+ 3|public static class AnotherConsumer
+ 4|{
+ 5|    // AnotherConsumerFunction is a second consumer of shared types and functions
+ 6|    public static void AnotherConsumerFunction()
+ 7|    {
+ 8|        Console.WriteLine("Another message: " + Helper.HelperFunction());
+ 9|
+10|        // Create another SharedClass instance
+11|        var s = new SharedClass
+12|        {
+13|            Id = 2,
+
+---
+
+/TEST_OUTPUT/workspace/Consumer.cs
+References in File: 1
+At: L8:C23
+
+1|namespace Workspace;
+...
+ 3|public static class Consumer
+ 4|{
+ 5|    // ConsumerFunction uses the helper function
+ 6|    public static void ConsumerFunction()
+ 7|    {
+ 8|        var message = Helper.HelperFunction();
+ 9|        Console.WriteLine(message);
+10|
+11|        // Use shared class
+12|        var s = new SharedClass
+13|        {

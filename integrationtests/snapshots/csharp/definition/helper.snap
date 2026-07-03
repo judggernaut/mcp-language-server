@@ -1,0 +1,19 @@
+---
+
+Symbol: Helper
+File: /TEST_OUTPUT/workspace/Helper.cs
+Kind: Class
+Range: L1:C1 - L11:C1
+
+ 1|namespace Workspace;
+ 2|
+ 3|public static class Helper
+ 4|{
+ 5|    // HelperFunction returns a string for testing
+ 6|    public static string HelperFunction()
+ 7|    {
+ 8|        return "hello world";
+ 9|    }
+10|}
+11|
+

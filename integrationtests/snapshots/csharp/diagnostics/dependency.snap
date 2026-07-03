@@ -1,0 +1,11 @@
+/TEST_OUTPUT/workspace/Consumer.cs
+Diagnostics in File: 1
+ERROR at L8:C30: There is no argument given that corresponds to the required parameter 'value' of 'Helper.HelperFunction(int)' (Source: lsp, Code: CS7036)
+
+1|namespace Workspace;
+...
+ 6|    public static void ConsumerFunction()
+ 7|    {
+ 8|        var message = Helper.HelperFunction();
+ 9|        Console.WriteLine(message);
+10|

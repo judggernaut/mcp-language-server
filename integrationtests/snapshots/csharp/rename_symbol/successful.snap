@@ -1,0 +1,5 @@
+Successfully renamed symbol to 'UpdatedConstant'.
+Updated 3 occurrences across 3 files:
+/TEST_OUTPUT/workspace/AnotherConsumer.cs: L16:C60
+/TEST_OUTPUT/workspace/Consumer.cs: L17:C60
+/TEST_OUTPUT/workspace/Types.cs: L40:C25
