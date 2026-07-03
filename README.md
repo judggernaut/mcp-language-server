@@ -175,6 +175,9 @@ This is an [MCP](https://modelcontextprotocol.io/introduction) server that runs 
 - `hover`: Display documentation, type hints, or other hover information for a given location.
 - `rename_symbol`: Rename a symbol across a project.
 - `edit_file`: Allows making multiple text edits to a file based on line numbers. Provides a more reliable and context-economical way to edit files compared to search and replace based edit tools.
+- `workspace_symbol`: Search the entire workspace for symbols matching a query, without needing to know which file they live in.
+- `implementation`: Find every type or method that implements an interface (or interface method) — the only reliable way to enumerate an interface's satisfaction set in structurally-typed languages like Go and TypeScript.
+- `call_hierarchy`: List direct callers and callees of a function or method, for refactor impact analysis and data-flow tracing.
 
 ## About
 
@@ -264,6 +267,32 @@ When the server registers file watchers, it can eagerly open every workspace fil
 | Variable | Default | Description |
 | --- | --- | --- |
 | `MCP_PREOPEN_FILES` | _(auto)_ | `true`/`false` to force or disable eagerly opening all workspace files. Auto disables it for `gopls`/`pyright` and enables it otherwise. |
+
+### Idle shutdown
+
+The server can shut itself down automatically after a period with no MCP requests (useful if you run several persistent language-server instances and want unused ones to free their resources). Disabled by default.
+
+```json
+{
+  "mcpServers": {
+    "language-server": {
+      "command": "/full/path/to/your/clone/mcp-language-server/mcp-language-server",
+      "args": [
+        "--workspace",
+        "/path/to/workspace",
+        "--lsp",
+        "language-server-executable",
+        "--idle-timeout",
+        "15m"
+      ]
+    }
+  }
+}
+```
+
+| Flag / Env var | Default | Description |
+| --- | --- | --- |
+| `--idle-timeout` / `MCP_IDLE_TIMEOUT` | `0` (disabled) | Shut down after this long with no MCP requests (e.g. `15m`, `1h`). The flag takes precedence if both are set. |
 
 ### LSP interaction
 
