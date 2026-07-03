@@ -93,7 +93,7 @@ func ConfinePath(path string) error {
 
 // ApplyTextEdits applies a sequence of text edits to a file specified by URI
 func ApplyTextEdits(uri protocol.DocumentUri, edits []protocol.TextEdit) error {
-	path := strings.TrimPrefix(string(uri), "file://")
+	path := uri.Path()
 
 	if err := ConfinePath(path); err != nil {
 		return err
@@ -248,7 +248,7 @@ func ApplyTextEdit(lines []string, edit protocol.TextEdit, lineEnding string) ([
 // ApplyDocumentChange applies a DocumentChange (create/rename/delete operations)
 func ApplyDocumentChange(change protocol.DocumentChange) error {
 	if change.CreateFile != nil {
-		path := strings.TrimPrefix(string(change.CreateFile.URI), "file://")
+		path := change.CreateFile.URI.Path()
 		if err := ConfinePath(path); err != nil {
 			return err
 		}
@@ -267,7 +267,7 @@ func ApplyDocumentChange(change protocol.DocumentChange) error {
 	}
 
 	if change.DeleteFile != nil {
-		path := strings.TrimPrefix(string(change.DeleteFile.URI), "file://")
+		path := change.DeleteFile.URI.Path()
 		if err := ConfinePath(path); err != nil {
 			return err
 		}
@@ -283,8 +283,8 @@ func ApplyDocumentChange(change protocol.DocumentChange) error {
 	}
 
 	if change.RenameFile != nil {
-		oldPath := strings.TrimPrefix(string(change.RenameFile.OldURI), "file://")
-		newPath := strings.TrimPrefix(string(change.RenameFile.NewURI), "file://")
+		oldPath := change.RenameFile.OldURI.Path()
+		newPath := change.RenameFile.NewURI.Path()
 		if err := ConfinePath(oldPath); err != nil {
 			return err
 		}

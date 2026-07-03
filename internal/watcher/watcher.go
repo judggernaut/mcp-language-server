@@ -328,7 +328,7 @@ func (w *WorkspaceWatcher) WatchWorkspace(ctx context.Context, workspacePath str
 				return
 			}
 
-			uri := fmt.Sprintf("file://%s", event.Name)
+			uri := string(protocol.URIFromPath(event.Name))
 
 			// Check if this is a file (not a directory) and should be excluded
 			isFile := false
@@ -595,8 +595,8 @@ func (w *WorkspaceWatcher) matchesPattern(path string, pattern protocol.GlobPatt
 		return fullPathMatch || baseNameMatch
 	}
 
-	// For relative patterns
-	basePath = strings.TrimPrefix(basePath, "file://")
+	// For relative patterns. GetBasePath() now returns a clean filesystem path
+	// (see protocol.AsPattern), so no URI prefix needs stripping here.
 	basePath = filepath.ToSlash(basePath)
 
 	// Make path relative to basePath for matching
@@ -640,7 +640,7 @@ func (w *WorkspaceWatcher) debounceHandleFileEvent(ctx context.Context, uri stri
 // handleFileEvent sends file change notifications
 func (w *WorkspaceWatcher) handleFileEvent(ctx context.Context, uri string, changeType protocol.FileChangeType) {
 	// If the file is open and it's a change event, use didChange notification
-	filePath := uri[7:] // Remove "file://" prefix
+	filePath := protocol.DocumentUri(uri).Path()
 	if changeType == protocol.FileChangeType(protocol.Changed) && w.client.IsFileOpen(filePath) {
 		err := w.client.NotifyChange(ctx, filePath)
 		if err != nil {
