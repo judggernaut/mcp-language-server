@@ -1,7 +1,7 @@
 ---
 
 Symbol: TestStruct.Method
-/TEST_OUTPUT/workspace/clean.go
+File: /TEST_OUTPUT/workspace/clean.go
 Kind: Method
 Container Name: github.com/isaacphi/mcp-language-server/integrationtests/test-output/go/workspace
 Range: L12:C1 - L14:C2

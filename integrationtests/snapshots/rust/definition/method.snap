@@ -1,7 +1,7 @@
 ---
 
 Symbol: method
-/TEST_OUTPUT/workspace/src/types.rs
+File: /TEST_OUTPUT/workspace/src/types.rs
 Kind: Function
 Container Name: TestStruct
 Range: L18:C1 - L30:C2
@@ -23,7 +23,7 @@ Range: L18:C1 - L30:C2
 ---
 
 Symbol: method
-/TEST_OUTPUT/workspace/src/types.rs
+File: /TEST_OUTPUT/workspace/src/types.rs
 Kind: Function
 Container Name: SharedStruct
 Range: L54:C1 - L64:C2
