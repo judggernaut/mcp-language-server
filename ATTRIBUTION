@@ -15,6 +15,17 @@ The code in `cmd/generate/` includes modified code from the Go Tools project's L
 
 The original BSD 3-Clause license for this code can be found at: `cmd/generate_protocol/LICENSE`
 
+## Go Tools LSP Glob Pattern Matcher
+
+The code in `internal/glob/` is a copy of the LSP-compliant glob pattern matcher used internally by gopls (an `internal/` package, so it cannot be imported as a dependency and is vendored here instead).
+
+- **Source**: https://cs.opensource.google/go/x/tools/+/gopls/v0.14.2:gopls/internal/lsp/glob/glob.go
+- **License**: BSD 3-Clause
+- **Copyright**: Copyright 2023 The Go Authors
+- **Used for**: Matching file watcher registration glob patterns (`**`, `{a,b}`, `[a-z]`, `[!...]`, etc.) per the LSP 3.17 specification
+- **Location**: internal/glob/
+- **Modifications**: None; copied as-is
+
 ---
 
 Note: The remainder of this project is licensed under the BSD 3-Clause License, as specified in the root LICENSE file.
