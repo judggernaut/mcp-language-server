@@ -35,11 +35,13 @@ func TestReadDefinition(t *testing.T) {
 
 	suite := internal.GetTestSuite(t)
 
+	// Open all files and wait for clangd to index them. This runs against the
+	// broader suite context so the fixed indexing wait doesn't eat into the
+	// timeout budget for the actual ReadDefinition calls below.
+	openAllFilesAndWait(suite, suite.Context)
+
 	ctx, cancel := context.WithTimeout(suite.Context, 10*time.Second)
 	defer cancel()
-
-	// Open all files and wait for clangd to index them
-	openAllFilesAndWait(suite, ctx)
 
 	tests := []struct {
 		name         string
@@ -131,11 +133,13 @@ func TestReadDefinitionInAnotherFile(t *testing.T) {
 
 	suite := internal.GetTestSuite(t)
 
+	// Open all files and wait for clangd to index them. This runs against the
+	// broader suite context so the fixed indexing wait doesn't eat into the
+	// timeout budget for the actual ReadDefinition calls below.
+	openAllFilesAndWait(suite, suite.Context)
+
 	ctx, cancel := context.WithTimeout(suite.Context, 10*time.Second)
 	defer cancel()
-
-	// Open all files and wait for clangd to index them
-	openAllFilesAndWait(suite, ctx)
 
 	tests := []struct {
 		name         string
