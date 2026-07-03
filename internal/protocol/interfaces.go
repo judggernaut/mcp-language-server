@@ -6,6 +6,8 @@ import "fmt"
 type WorkspaceSymbolResult interface {
 	GetName() string
 	GetLocation() Location
+	GetKind() SymbolKind
+	GetContainerName() string
 	isWorkspaceSymbol() // marker method
 }
 
@@ -19,11 +21,15 @@ func (ws *WorkspaceSymbol) GetLocation() Location {
 	}
 	return Location{}
 }
-func (ws *WorkspaceSymbol) isWorkspaceSymbol() {}
+func (ws *WorkspaceSymbol) GetKind() SymbolKind      { return ws.Kind }
+func (ws *WorkspaceSymbol) GetContainerName() string { return ws.ContainerName }
+func (ws *WorkspaceSymbol) isWorkspaceSymbol()       {}
 
-func (si *SymbolInformation) GetName() string       { return si.Name }
-func (si *SymbolInformation) GetLocation() Location { return si.Location }
-func (si *SymbolInformation) isWorkspaceSymbol()    {}
+func (si *SymbolInformation) GetName() string          { return si.Name }
+func (si *SymbolInformation) GetLocation() Location    { return si.Location }
+func (si *SymbolInformation) GetKind() SymbolKind      { return si.Kind }
+func (si *SymbolInformation) GetContainerName() string { return si.ContainerName }
+func (si *SymbolInformation) isWorkspaceSymbol()       {}
 
 // Results converts the Value to a slice of WorkspaceSymbolResult
 func (r Or_Result_workspace_symbol) Results() ([]WorkspaceSymbolResult, error) {
