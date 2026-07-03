@@ -14,6 +14,35 @@ type Logger interface {
 	Printf(format string, v ...any)
 }
 
+// rewriteCompileCommandsDirectory rewrites a copied workspace's
+// compile_commands.json (if present) so that any occurrence of the original
+// template directory is replaced with the copied workspace directory. Tools
+// like clangd resolve every translation unit through the "directory"/"file"
+// fields in this compilation database rather than through the LSP root, so
+// without this rewrite, a copied workspace's compile_commands.json still
+// points back at the original template files.
+func rewriteCompileCommandsDirectory(templateDir, copiedDir string) error {
+	path := filepath.Join(copiedDir, "compile_commands.json")
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	rewritten := strings.ReplaceAll(string(contents), templateDir, copiedDir)
+	if rewritten == string(contents) {
+		return nil
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(rewritten), info.Mode())
+}
+
 // Helper to copy directories recursively
 func CopyDir(src, dst string) error {
 	srcInfo, err := os.Stat(src)

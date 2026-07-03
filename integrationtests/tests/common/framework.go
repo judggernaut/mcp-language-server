@@ -155,13 +155,30 @@ func (ts *TestSuite) Setup() error {
 	ts.WorkspaceDir = workspaceDir
 	ts.t.Logf("Copied workspace from %s to %s", ts.Config.WorkspaceDir, workspaceDir)
 
+	// clangd's compile_commands.json bakes in the absolute "directory" it was
+	// generated from. Left untouched, clangd resolves every translation unit
+	// against the original template workspace instead of this test's copy, so
+	// any tool that edits files (e.g. rename_symbol) would silently mutate the
+	// checked-out template rather than the disposable copy. Rewrite it here so
+	// the copy is fully self-contained.
+	if err := rewriteCompileCommandsDirectory(ts.Config.WorkspaceDir, workspaceDir); err != nil {
+		return fmt.Errorf("failed to rewrite compile_commands.json: %w", err)
+	}
+
+	// Args may reference the workspace directory via a placeholder, since the
+	// real (copied) path isn't known until the copy above completes.
+	args := make([]string, len(ts.Config.Args))
+	for i, arg := range ts.Config.Args {
+		args[i] = strings.ReplaceAll(arg, "{{WORKSPACE_DIR}}", workspaceDir)
+	}
+
 	// Create and initialize LSP client
-	client, err := lsp.NewClient(ts.Config.Command, ts.Config.Args...)
+	client, err := lsp.NewClient(ts.Config.Command, args...)
 	if err != nil {
 		return fmt.Errorf("failed to create LSP client: %w", err)
 	}
 	ts.Client = client
-	ts.t.Logf("Started LSP: %s %v", ts.Config.Command, ts.Config.Args)
+	ts.t.Logf("Started LSP: %s %v", ts.Config.Command, args)
 
 	// Initialize LSP and set up file watcher
 	initResult, err := client.InitializeLSPClient(ts.Context, workspaceDir)

@@ -17,9 +17,12 @@ func GetTestSuite(t *testing.T) *common.TestSuite {
 	}
 
 	config := common.LSPTestConfig{
-		Name:             "clangd",
-		Command:          "clangd",
-		Args:             []string{"--compile-commands-dir=" + filepath.Join(repoRoot, "integrationtests/workspaces/clangd")},
+		Name:    "clangd",
+		Command: "clangd",
+		// The copied workspace's own compile_commands.json (rewritten by the
+		// test framework to reference the copy) is used, not the template's,
+		// so tools that edit files don't mutate the checked-out template.
+		Args:             []string{"--compile-commands-dir={{WORKSPACE_DIR}}"},
 		WorkspaceDir:     filepath.Join(repoRoot, "integrationtests/workspaces/clangd"),
 		InitializeTimeMs: 2000,
 	}

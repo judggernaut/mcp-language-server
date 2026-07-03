@@ -1,0 +1,6 @@
+Successfully renamed symbol to 'renamedHelperFunction'.
+Updated 4 occurrences across 4 files:
+/TEST_OUTPUT/workspace/include/helper.hpp: L1:C6
+/TEST_OUTPUT/workspace/src/consumer.cpp: L14:C28
+/TEST_OUTPUT/workspace/src/helper.cpp: L7:C6
+/TEST_OUTPUT/workspace/src/main.cpp: L11:C3
